@@ -417,6 +417,15 @@ func (kt *KustTarget) removeValidatedByLabel(rm resmap.ResMap) error {
 func (kt *KustTarget) accumulateResources(
 	ra *accumulator.ResAccumulator, paths []string) (*accumulator.ResAccumulator, error) {
 	for _, path := range paths {
+		// use git to load any paths prefixed with git::
+		if strings.HasPrefix(path, "git::") {
+			_, err := kt.accumulateGitRepository(ra, path)
+			if err != nil {
+				return nil, err
+			}
+			// don't try to load git:: prefixed paths any other way
+			continue
+		}
 		// try loading resource as file then as base (directory or git repository)
 		if errF := kt.accumulateFile(ra, path); errF != nil {
 			// not much we can do if the error is an HTTP error so we bail out
@@ -449,6 +458,28 @@ func (kt *KustTarget) accumulateResources(
 					err, "accumulation err='%s'", errF.Error())
 			}
 		}
+	}
+	return ra, nil
+}
+
+func (kt *KustTarget) accumulateGitRepository(
+	ra *accumulator.ResAccumulator, path string) (*accumulator.ResAccumulator, error) {
+	ldr, err := kt.ldr.New(path)
+	if err != nil {
+		return nil, err
+	}
+	// store the origin, we'll need it later
+	origin := kt.origin.Copy()
+	if kt.origin != nil {
+		kt.origin = kt.origin.Append(path)
+		ra, err = kt.accumulateDirectory(ra, ldr, false)
+		// after we are done recursing through the directory, reset the origin
+		kt.origin = &origin
+	} else {
+		ra, err = kt.accumulateDirectory(ra, ldr, false)
+	}
+	if err != nil {
+		return nil, err
 	}
 	return ra, nil
 }
